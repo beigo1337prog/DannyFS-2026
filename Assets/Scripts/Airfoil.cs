@@ -1,12 +1,21 @@
 using System;
-using Unity.VisualScripting;
+using System.Globalization;
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
+using System.Collections.Generic;
+using UnityEditor.Build;
+using System.Diagnostics.Contracts;
+using UnityEngine.UI;
 
 public class Airfoil : MonoBehaviour
 {
     public float thicknessRatio = 0.12f;
+    public TextAsset[] airfoilFiles;
     public ReynoldsPolar[] polars;
+
+    public float[] test;
+    public Text text;
+    public InputField aoaField;
+    public InputField reField;
 
     public AeroCoefficients Sample(float alpha, float reynolds)
     {
@@ -133,5 +142,91 @@ public class Airfoil : MonoBehaviour
                 return default;
             }
         }
+    }
+
+    void LoadData()
+    {
+        ReynoldsPolar polar32 = ParsePolar(airfoilFiles[0], 32_000_000);
+        ReynoldsPolar polar42 = ParsePolar(airfoilFiles[1], 42_000_000);
+
+        polars = new ReynoldsPolar[]
+        {
+            polar32,
+            polar42
+        };
+
+    }
+
+    private ReynoldsPolar ParsePolar(TextAsset file, float reynolds)
+    {
+        Debug.Log($"parsing file {file.name} with reynolds {reynolds}");
+        if (file == null)
+        {
+            Debug.LogError("no file nerd");
+            return null;
+        }
+
+        ReynoldsPolar polar = new ReynoldsPolar();
+        polar.reynolds = reynolds;
+        List<AirfoilSample> samples = new List<AirfoilSample>();
+        string[] lines = file.text.Split('\n');
+        foreach (string line in lines)
+        {
+            string cleanedLine = line.Trim();
+            if (cleanedLine.Length == 0 || cleanedLine.StartsWith("alpha")) { continue; }
+            string[] values = cleanedLine.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (values.Length != 4)
+            {
+                Debug.LogError("parsed line isn't 4 values");
+                continue;
+            }
+            bool alphaValid = float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float alpha);
+            bool clValid = float.TryParse(values[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float cl);
+            bool cdValid = float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float cd);
+            bool cmValid = float.TryParse(values[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float cm);
+
+            if (alphaValid && clValid && cdValid && cmValid)
+            {
+                AirfoilSample sample = new AirfoilSample(alpha, cl, cd, cm);
+                samples.Add(sample);
+            }
+            else
+            {
+                Debug.LogError($"invalid line: {cleanedLine}");
+            }
+        }
+        polar.samples = samples.ToArray();
+        Debug.Log($"parsed with {samples.Count} lines");
+        return polar;
+    }
+
+    private void Awake()
+    {
+        LoadData();
+    }
+
+    public void Test()
+    {
+        bool aoaValid = float.TryParse(aoaField.text, NumberStyles.Float, CultureInfo.InvariantCulture, out float aoa);
+        bool reV = float.TryParse(reField.text, NumberStyles.Float, CultureInfo.InvariantCulture, out float re);
+
+        if (!aoaValid || !reV)
+        {
+            Debug.LogWarning("parse fail test");
+        }
+
+        AeroCoefficients sample = Sample(aoa, re);
+        test = new float[] 
+        {
+            sample.cl,
+            sample.cd,
+            sample.cm
+        };
+    }
+
+    private void Update()
+    {
+        if (test.Length > 0)
+        text.text = $" Cl: {test[0]} Cd: {test[1]} Cm: {test[2]}";
     }
 }
